@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  clerkId            String   @unique
+  email              String   @unique
+  name               String?
+  preferredLocations String[]
+  visaRequired       Boolean  @default(false)
+  targetRoles        String[]
+  answerBank         Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  resumes            Resume[]
+  applications       Application[]
+}
+
+model Resume {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName       String
+  fileUrl        String
+  extractedData  Json
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+}
+
+model Job {
+  id               String     @id @default(cuid())
+  source           JobSource
+  externalId       String
+  title            String
+  company          String
+  location         String
+  isRemote         Boolean    @default(false)
+  visaSponsorship  Boolean    @default(false)
+  visaStatus       VisaStatus @default(UNKNOWN)
+  url              String     @unique
+  description      String     @db.Text
+  postedAt         DateTime
+  deadline         DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  applications     Application[]
+  @@unique([source, externalId])
+  @@index([company, title])
+}
+
+model Application {
+  id                String     @id @default(cuid())
+  userId            String
+  jobId             String
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job               Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  status            AppStatus  @default(SAVED)
+  applyMode         ApplyMode  @default(MANUAL)
+  matchScore        Int?
+  missingSkills     String[]
+  strengths         String[]
+  tailoredResumeUrl String?
+  coverLetterText   String?    @db.Text
+  lastActionAt      DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  @@unique([userId, jobId])
+}
+
+enum JobSource {
+  GREENHOUSE
+  LEVER
+  ADZUNA
+  ASHBY
+}
+
+enum AppStatus {
+  SAVED
+  APPLIED
+  INTERVIEWING
+  OFFER
+  REJECTED
+}
+
+enum ApplyMode {
+  MANUAL
+  ASSISTED
+  AUTO
+}
+
+enum VisaStatus {
+  F1_FRIENDLY
+  BLOCKED
+  UNKNOWN
+}

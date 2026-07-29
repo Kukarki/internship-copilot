@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head><style>
+  body { width: 260px; font-family: system-ui, sans-serif; padding: 12px; }
+  button { width: 100%; padding: 8px; margin-top: 8px; cursor: pointer; border-radius: 6px; border: 1px solid #ccc; }
+  #fill { background: #111; color: #fff; border: none; }
+  .muted { color: #666; font-size: 12px; }
+  #status { margin-top: 8px; font-size: 12px; }
+</style></head>
+<body>
+  <div class="muted">Make sure you are signed in at localhost:3000 in this browser.</div>
+  <button id="load">Load my profile</button>
+  <div id="who" class="muted"></div>
+  <button id="fill">Fill this application</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
