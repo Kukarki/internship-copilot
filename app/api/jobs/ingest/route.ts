@@ -7,10 +7,8 @@ import { classifyVisaLLM } from "@/lib/llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+const LLM_CAP = 40;
 
-const LLM_CAP = 40; // max Gemini visa calls per run
-
-// Map our stored VisaStatus enum from the richer LLM class.
 function toStatus(v: string): "F1_FRIENDLY" | "BLOCKED" | "UNKNOWN" {
   if (v === "F1_OPT_OK") return "F1_FRIENDLY";
   if (v === "NO_SPONSORSHIP" || v === "CITIZEN_ONLY") return "BLOCKED";
@@ -22,44 +20,38 @@ export async function POST() {
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { jobs, report } = await fetchAllJobs();
-  let saved = 0;
-  let llmUsed = 0;
-  const counts = { F1_FRIENDLY: 0, BLOCKED: 0, UNKNOWN: 0 };
+  const seenUrls: string[] = [];
+  let saved = 0, llmUsed = 0;
 
   for (const j of jobs) {
     let status: "F1_FRIENDLY" | "BLOCKED" | "UNKNOWN" = "UNKNOWN";
     const quick = regexVisa(j.description);
-
-    if (quick === "F1_FRIENDLY" || quick === "BLOCKED") {
-      status = quick;
-    } else if (llmUsed < LLM_CAP) {
-      status = toStatus(await classifyVisaLLM(j.description));
-      llmUsed++;
-    } else {
-      status = "UNKNOWN";
-    }
-    counts[status]++;
+    if (quick === "F1_FRIENDLY" || quick === "BLOCKED") status = quick;
+    else if (llmUsed < LLM_CAP) { status = toStatus(await classifyVisaLLM(j.description)); llmUsed++; }
 
     try {
       await db.job.upsert({
         where: { source_externalId: { source: j.source, externalId: j.externalId } },
-        update: {
-          title: j.title, company: j.company, location: j.location, isRemote: j.isRemote,
-          url: j.url, description: j.description, postedAt: j.postedAt, visaStatus: status,
-        },
-        create: {
-          source: j.source, externalId: j.externalId, title: j.title, company: j.company,
-          location: j.location, isRemote: j.isRemote, url: j.url, description: j.description,
-          postedAt: j.postedAt, visaStatus: status,
-        },
+        update: { title: j.title, company: j.company, location: j.location, isRemote: j.isRemote, url: j.url, description: j.description, postedAt: j.postedAt, deadline: j.deadline, visaStatus: status, isActive: true, lastSeenAt: new Date() },
+        create: { source: j.source, externalId: j.externalId, title: j.title, company: j.company, location: j.location, isRemote: j.isRemote, url: j.url, description: j.description, postedAt: j.postedAt, deadline: j.deadline, visaStatus: status, isActive: true, lastSeenAt: new Date() },
       });
+      seenUrls.push(j.url);
       saved++;
-    } catch (e) {
-      console.error("Job upsert skipped:", j.company, j.title, e instanceof Error ? e.message : e);
-    }
+    } catch (e) { console.error("skip:", j.company, j.title); }
   }
 
+  const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+  const now = new Date();
+  const deactivated = await db.job.updateMany({
+    where: { OR: [
+      { url: { notIn: seenUrls }, lastSeenAt: { lt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) } },
+      { postedAt: { lt: cutoff } },
+      { deadline: { not: null, lt: now } },
+    ] },
+    data: { isActive: false },
+  });
+
   console.log("Ingest report:", report.join(" | "));
-  console.log("Visa counts:", counts, "| LLM calls:", llmUsed);
-  return NextResponse.json({ saved, total: jobs.length, counts, llmUsed, report });
+  console.log(`Saved ${saved}, deactivated ${deactivated.count}`);
+  return NextResponse.json({ saved, deactivated: deactivated.count, report });
 }

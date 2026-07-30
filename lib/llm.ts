@@ -72,7 +72,7 @@ ${description.slice(0, 3500)}`,
   }
 }
 
-// ---- Match scoring ----
+// ---- Match scoring (weighted rubric, intern-calibrated) ----
 export const MatchSchema = z.object({
   matchScore: z.number(),
   missing: z.array(z.string()),
@@ -80,25 +80,55 @@ export const MatchSchema = z.object({
 });
 export type MatchResult = z.infer<typeof MatchSchema>;
 
+export type CandidateProfile = {
+  skills: string[];
+  roles: string[];
+  education: string[];
+  yearsOfExperience: number;
+};
+
 export async function scoreJobMatch(
-  resumeSkills: string[],
+  profile: CandidateProfile,
   jobTitle: string,
   jobDescription: string
 ): Promise<MatchResult> {
   const res = await ai.models.generateContent({
     model: MODEL,
-    contents: `You score how well a candidate fits a job, based ONLY on the skills provided.
-Return ONLY valid JSON (no markdown, no backticks) in this exact shape:
+    contents: `You score how well a STUDENT INTERN CANDIDATE fits an internship posting.
+
+SCORING RUBRIC - weight these, in this order:
+1. Hard skills / technologies (50%) - how much of what the posting REQUIRES does the candidate have. Required items count far more than "preferred" or "nice to have".
+2. Role / title alignment (20%) - does the candidate's background match this kind of role.
+3. Education fit (15%) - degree field and level versus what is asked.
+4. Other tools & keywords (15%) - adjacent tools, platforms, methods.
+
+CALIBRATION - this is an INTERNSHIP, so:
+- Do NOT penalize for lack of professional years of experience. Coursework and personal projects count as real experience.
+- Ignore boilerplate in the posting: benefits, salary, company mission, EEO/diversity statements, legal notices. Score only against actual requirements and qualifications.
+- Treat equivalent technologies as matches (e.g. Postgres counts toward SQL, React counts toward frontend, Node counts toward backend, Docker counts toward containers/DevOps).
+- Count a skill as present if the candidate has it under a different name or a close variant.
+
+SCORE ANCHORS:
+- 85-100: has nearly all required skills, right field, strong fit.
+- 70-84: has most required skills, a few gaps.
+- 50-69: partial overlap, several required skills missing.
+- 25-49: weak overlap, wrong specialization.
+- 0-24: unrelated role.
+
+Return ONLY valid JSON (no markdown, no backticks):
 { "matchScore": number 0-100, "missing": string[], "strengths": string[] }
-- matchScore: how well the candidate's skills cover this job.
-- missing: up to 6 important skills the job wants that the candidate does NOT have.
-- strengths: up to 6 of the candidate's skills that this job values.
-Do not invent candidate skills beyond the list given.
+- missing: up to 6 REQUIRED skills the posting wants that the candidate lacks.
+- strengths: up to 6 of the candidate's own skills this posting values.
+Never invent candidate skills beyond the list given.
 
-Candidate skills: ${resumeSkills.join(", ")}
+CANDIDATE
+Skills: ${profile.skills.join(", ") || "none listed"}
+Roles: ${profile.roles.join(", ") || "student"}
+Education: ${profile.education.join(", ") || "not listed"}
 
-Job title: ${jobTitle}
-Job description:
+POSTING
+Title: ${jobTitle}
+Description:
 ${jobDescription.slice(0, 3000)}`,
     config: { temperature: 0, responseMimeType: "application/json" },
   });

@@ -8,6 +8,7 @@ export type NormalizedJob = {
   url: string;
   description: string;
   postedAt: Date;
+  deadline: Date | null;
 };
 
 export const COMPANIES: { source: "GREENHOUSE" | "LEVER"; token: string; name: string }[] = [
@@ -35,51 +36,37 @@ export const COMPANIES: { source: "GREENHOUSE" | "LEVER"; token: string; name: s
   { source: "GREENHOUSE", token: "cloudflare", name: "Cloudflare" },
   { source: "GREENHOUSE", token: "gusto", name: "Gusto" },
   { source: "GREENHOUSE", token: "asana", name: "Asana" },
-  { source: "GREENHOUSE", token: "twitch", name: "Twitch" },
   { source: "GREENHOUSE", token: "pinterest", name: "Pinterest" },
   { source: "GREENHOUSE", token: "lyft", name: "Lyft" },
   { source: "GREENHOUSE", token: "flexport", name: "Flexport" },
-  { source: "GREENHOUSE", token: "wealthfront", name: "Wealthfront" },
   { source: "GREENHOUSE", token: "airtable", name: "Airtable" },
   { source: "GREENHOUSE", token: "chime", name: "Chime" },
-  { source: "GREENHOUSE", token: "gemini", name: "Gemini" },
-  { source: "GREENHOUSE", token: "circle", name: "Circle" },
   { source: "GREENHOUSE", token: "sofi", name: "SoFi" },
   { source: "GREENHOUSE", token: "opendoor", name: "Opendoor" },
   { source: "GREENHOUSE", token: "verkada", name: "Verkada" },
-  { source: "GREENHOUSE", token: "scaleai", name: "Scale AI" },
   { source: "GREENHOUSE", token: "faire", name: "Faire" },
   { source: "GREENHOUSE", token: "webflow", name: "Webflow" },
   { source: "GREENHOUSE", token: "vercel", name: "Vercel" },
   { source: "LEVER", token: "netflix", name: "Netflix" },
   { source: "LEVER", token: "palantir", name: "Palantir" },
-  { source: "LEVER", token: "kayak", name: "KAYAK" },
   { source: "LEVER", token: "attentive", name: "Attentive" },
-  { source: "LEVER", token: "voleon", name: "Voleon" },
-  { source: "LEVER", token: "fanatics", name: "Fanatics" },
-  { source: "LEVER", token: "gopuff", name: "Gopuff" },
 ];
 
 const INTERN_RE = /intern|co-?op|new ?grad|university|early career|apprentic/i;
-
 const TECH_RE = /software|engineer|developer|data|machine learning|\bml\b|\bai\b|backend|back-end|frontend|front-end|full[- ]?stack|devops|security|cloud|infrastructure|platform|mobile|ios|android|web|computer|programming|sde|swe|qa|test|analytics|systems/i;
-
 const NON_TECH_RE = /nurse|nursing|clinical|audit|accounting|sales|marketing|recruit|teacher|barista|driver|warehouse|retail|hospitality|physician|therapist|pharmac|legal|paralegal|hr\b|human resources|social work|dental|veterinar/i;
 
 function isTechRole(title: string, description: string): boolean {
   if (NON_TECH_RE.test(title)) return false;
   return TECH_RE.test(title) || TECH_RE.test(description.slice(0, 600));
 }
-
 function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\s+/g, " ")
-    .trim();
+  return html.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
+}
+function parseDate(v: any): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 async function fetchGreenhouse(token: string, name: string): Promise<NormalizedJob[]> {
@@ -91,15 +78,11 @@ async function fetchGreenhouse(token: string, name: string): Promise<NormalizedJ
     .map((j: any) => {
       const loc = j.location?.name ?? "";
       return {
-        source: "GREENHOUSE" as const,
-        externalId: String(j.id),
-        title: j.title,
-        company: name,
-        location: loc,
-        isRemote: /remote/i.test(loc),
-        url: j.absolute_url,
+        source: "GREENHOUSE" as const, externalId: String(j.id), title: j.title, company: name,
+        location: loc, isRemote: /remote/i.test(loc), url: j.absolute_url,
         description: stripHtml(j.content ?? "").slice(0, 4000),
-        postedAt: new Date(j.updated_at ?? j.first_published ?? Date.now()),
+        postedAt: parseDate(j.updated_at ?? j.first_published) ?? new Date(),
+        deadline: null,
       };
     })
     .filter((j: NormalizedJob) => isTechRole(j.title, j.description));
@@ -114,25 +97,19 @@ async function fetchLever(token: string, name: string): Promise<NormalizedJob[]>
     .map((j: any) => {
       const loc = j.categories?.location ?? "";
       return {
-        source: "LEVER" as const,
-        externalId: String(j.id),
-        title: j.text,
-        company: name,
-        location: loc,
-        isRemote: /remote/i.test(loc),
-        url: j.hostedUrl,
+        source: "LEVER" as const, externalId: String(j.id), title: j.text, company: name,
+        location: loc, isRemote: /remote/i.test(loc), url: j.hostedUrl,
         description: (j.descriptionPlain ?? "").slice(0, 4000),
-        postedAt: new Date(j.createdAt ?? Date.now()),
+        postedAt: parseDate(j.createdAt) ?? new Date(), deadline: null,
       };
     })
     .filter((j: NormalizedJob) => isTechRole(j.title, j.description));
 }
 
 async function fetchAdzuna(): Promise<NormalizedJob[]> {
-  const id = process.env.ADZUNA_APP_ID;
-  const key = process.env.ADZUNA_APP_KEY;
+  const id = process.env.ADZUNA_APP_ID, key = process.env.ADZUNA_APP_KEY;
   if (!id || !key) return [];
-  const url = `https://api.adzuna.com/v1/api/jobs/us/search/1?app_id=${id}&app_key=${key}&what_and=software%20intern&category=it-jobs&results_per_page=50&max_days_old=45&content-type=application/json`;
+  const url = `https://api.adzuna.com/v1/api/jobs/us/search/1?app_id=${id}&app_key=${key}&what_and=software%20intern&category=it-jobs&results_per_page=50&max_days_old=30&content-type=application/json`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Adzuna: ${res.status}`);
   const data = await res.json();
@@ -140,15 +117,11 @@ async function fetchAdzuna(): Promise<NormalizedJob[]> {
     .map((j: any) => {
       const loc = j.location?.display_name ?? "";
       return {
-        source: "ADZUNA" as const,
-        externalId: String(j.id),
-        title: stripHtml(j.title ?? ""),
-        company: j.company?.display_name ?? "Unknown",
-        location: loc,
-        isRemote: /remote/i.test(loc),
-        url: j.redirect_url,
-        description: stripHtml(j.description ?? "").slice(0, 4000),
-        postedAt: new Date(j.created ?? Date.now()),
+        source: "ADZUNA" as const, externalId: String(j.id), title: stripHtml(j.title ?? ""),
+        company: j.company?.display_name ?? "Unknown", location: loc, isRemote: /remote/i.test(loc),
+        url: j.redirect_url, description: stripHtml(j.description ?? "").slice(0, 4000),
+        postedAt: parseDate(j.created) ?? new Date(),
+        deadline: parseDate(j.expiration_date ?? j.expires),
       };
     })
     .filter((j: NormalizedJob) => INTERN_RE.test(j.title) && isTechRole(j.title, j.description));
@@ -159,21 +132,12 @@ export async function fetchAllJobs(): Promise<{ jobs: NormalizedJob[]; report: s
   const report: string[] = [];
   for (const c of COMPANIES) {
     try {
-      const fetched = c.source === "GREENHOUSE"
-        ? await fetchGreenhouse(c.token, c.name)
-        : await fetchLever(c.token, c.name);
+      const fetched = c.source === "GREENHOUSE" ? await fetchGreenhouse(c.token, c.name) : await fetchLever(c.token, c.name);
       jobs.push(...fetched);
       report.push(`${c.name}: ${fetched.length}`);
-    } catch (e) {
-      report.push(`${c.name}: FAILED (${e instanceof Error ? e.message : "error"})`);
-    }
+    } catch (e) { report.push(`${c.name}: FAILED`); }
   }
-  try {
-    const a = await fetchAdzuna();
-    jobs.push(...a);
-    report.push(`Adzuna: ${a.length}`);
-  } catch (e) {
-    report.push(`Adzuna: FAILED (${e instanceof Error ? e.message : "error"})`);
-  }
+  try { const a = await fetchAdzuna(); jobs.push(...a); report.push(`Adzuna: ${a.length}`); }
+  catch (e) { report.push(`Adzuna: FAILED`); }
   return { jobs, report };
 }

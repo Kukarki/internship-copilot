@@ -43,6 +43,8 @@ model Job {
   isRemote         Boolean    @default(false)
   visaSponsorship  Boolean    @default(false)
   visaStatus       VisaStatus @default(UNKNOWN)
+  isActive         Boolean    @default(true)
+  lastSeenAt       DateTime   @default(now())
   url              String     @unique
   description      String     @db.Text
   postedAt         DateTime
