@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -8,7 +8,7 @@ import { extractResumeFromText, extractResumeFromFile } from "@/lib/llm";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_SIZE = 10 * 1024 * 1024;
 const ALLOWED = [".pdf", ".docx", ".png", ".jpg", ".jpeg", ".webp"];
 
 export async function POST(req: NextRequest) {
@@ -22,16 +22,11 @@ export async function POST(req: NextRequest) {
 
     const name = file.name.toLowerCase();
     const ext = ALLOWED.find((e) => name.endsWith(e));
-    if (!ext) {
-      return NextResponse.json({ error: "Upload a PDF, DOCX, or image" }, { status: 400 });
-    }
-    if (file.size > MAX_SIZE) {
-      return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 400 });
-    }
+    if (!ext) return NextResponse.json({ error: "Upload a PDF, DOCX, or image" }, { status: 400 });
+    if (file.size > MAX_SIZE) return NextResponse.json({ error: "File too large (max 10 MB)" }, { status: 400 });
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // --- extract to structured data ---
     let extracted;
     if (ext === ".docx") {
       const text = await extractDocxText(buffer);
@@ -48,42 +43,32 @@ export async function POST(req: NextRequest) {
       extracted = await extractResumeFromFile(buffer.toString("base64"), mime);
     }
 
-    // --- find or create the User ---
     const clerkUser = await currentUser();
     const email = clerkUser?.emailAddresses[0]?.emailAddress ?? "";
-    const fullName =
-      [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") || null;
+    const fullName = [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ") || null;
     const user = await db.user.upsert({
       where: { clerkId: userId },
       update: {},
       create: { clerkId: userId, email, name: fullName },
     });
 
-    // --- store the file (robust: any filename, any type) ---
-    const safeExt = (ext || "").replace(".", "") || "bin";
+    // Private storage: keep only the path, never a public URL.
+    const safeExt = ext.replace(".", "") || "bin";
     const path = `${userId.replace(/[^a-zA-Z0-9]/g, "")}/${Date.now()}-${crypto.randomUUID()}.${safeExt}`;
     const { error: upErr } = await supabaseAdmin.storage
       .from("resumes")
-      .upload(path, buffer, {
-        contentType: file.type || "application/octet-stream",
-        upsert: true,
-      });
+      .upload(path, buffer, { contentType: file.type || "application/octet-stream", upsert: true });
     if (upErr) {
       console.error("Supabase upload error:", upErr);
       return NextResponse.json({ error: "File storage failed" }, { status: 500 });
     }
-    const { data: pub } = supabaseAdmin.storage.from("resumes").getPublicUrl(path);
 
-    // --- save resume ---
-    await db.resume.updateMany({
-      where: { userId: user.id, isActive: true },
-      data: { isActive: false },
-    });
+    await db.resume.updateMany({ where: { userId: user.id, isActive: true }, data: { isActive: false } });
     const resume = await db.resume.create({
       data: {
         userId: user.id,
         fileName: file.name,
-        fileUrl: pub.publicUrl,
+        fileUrl: path,
         extractedData: extracted,
         isActive: true,
       },

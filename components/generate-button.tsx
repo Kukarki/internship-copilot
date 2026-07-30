@@ -2,30 +2,40 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, FileText, FileUser } from "lucide-react";
+import { Loader2, FileText, FileUser, Download, Copy } from "lucide-react";
+import { downloadTextPdf } from "@/lib/make-pdf";
 
-function Output({ text }: { text: string }) {
+function Output({ text, heading, filename }: { text: string; heading: string; filename: string }) {
+  const [copied, setCopied] = useState(false);
   return (
-    <div className="mt-2 p-3 rounded border bg-muted/40 text-sm whitespace-pre-wrap">
-      {text}
-      <div className="pt-2">
+    <div className="mt-2 rounded-lg border bg-muted/40 text-sm">
+      <div className="p-3 whitespace-pre-wrap max-h-72 overflow-auto">{text}</div>
+      <div className="flex items-center gap-2 border-t px-3 py-2">
         <button
-          className="text-xs underline text-muted-foreground"
-          onClick={() => navigator.clipboard.writeText(text)}
+          onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+          className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md hover:bg-accent transition-colors"
         >
-          Copy
+          <Copy className="h-3 w-3" /> {copied ? "Copied" : "Copy"}
+        </button>
+        <button
+          onClick={() => downloadTextPdf(filename, heading, text)}
+          className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md grad-bg text-white font-medium"
+        >
+          <Download className="h-3 w-3" /> Download PDF
         </button>
       </div>
     </div>
   );
 }
 
-export function GenerateButton({ jobId }: { jobId: string }) {
+export function GenerateButton({ jobId, jobTitle, company }: { jobId: string; jobTitle?: string; company?: string }) {
   const [loadingLetter, setLoadingLetter] = useState(false);
   const [loadingResume, setLoadingResume] = useState(false);
   const [letter, setLetter] = useState<string | null>(null);
   const [resume, setResume] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const slug = (company || "job").replace(/[^a-zA-Z0-9]/g, "-").toLowerCase();
 
   async function call(path: string, set: (v: string) => void, setLoad: (b: boolean) => void, key: string) {
     setLoad(true);
@@ -61,8 +71,8 @@ export function GenerateButton({ jobId }: { jobId: string }) {
         </Button>
       </div>
       {error && <p className="text-xs text-red-500">{error}</p>}
-      {letter && <Output text={letter} />}
-      {resume && <Output text={resume} />}
+      {letter && <Output text={letter} heading={`Cover Letter${company ? " - " + company : ""}`} filename={`cover-letter-${slug}`} />}
+      {resume && <Output text={resume} heading="Resume" filename={`resume-${slug}`} />}
     </div>
   );
 }

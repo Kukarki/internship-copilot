@@ -16,6 +16,7 @@ model User {
   visaRequired       Boolean  @default(false)
   targetRoles        String[]
   answerBank         Json?
+  resumeData         Json?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   resumes            Resume[]
